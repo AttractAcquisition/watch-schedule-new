@@ -1,0 +1,9 @@
+export type PlanType = "solo_watch" | "dual_watch" | "triple_watch";
+export type SubscriptionStatus = "inactive" | "trialing" | "active" | "past_due" | "cancelled";
+export type Department = "command" | "deck" | "interior" | "engineering" | "unassigned";
+export type CrewStatus = "active" | "on_leave" | "sick" | "off_vessel" | "training" | "unavailable" | "offboarded";
+export type WatchMode = "solo" | "dual" | "triple";
+export type LeaveType = "leave" | "sick" | "training" | "off_vessel" | "unavailable";
+export type LeaveStatus = "requested" | "approved" | "denied" | "cancelled";
+export type CrewLifecycle = "active" | "joiner" | "leaver" | "archived";
+export type WeekendMode = "standard" | "heavy" | "friday_sunday" | "saturday_sunday" | "custom";
