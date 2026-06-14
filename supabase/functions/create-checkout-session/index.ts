@@ -3,9 +3,9 @@ import { corsResponse, err, json } from "../_shared/cors.ts";
 import { userClient } from "../_shared/client.ts";
 
 const PRICE_MAP: Record<string, string | undefined> = {
-  solo_watch: Deno.env.get("STRIPE_PRICE_SOLO"),
-  dual_watch: Deno.env.get("STRIPE_PRICE_DUAL"),
-  triple_watch: Deno.env.get("STRIPE_PRICE_TRIPLE"),
+  solo_watch: Deno.env.get("STRIPE_PRICE_SOLO_WATCH") ?? Deno.env.get("STRIPE_PRICE_SOLO"),
+  dual_watch: Deno.env.get("STRIPE_PRICE_DUAL_WATCH") ?? Deno.env.get("STRIPE_PRICE_DUAL"),
+  triple_watch: Deno.env.get("STRIPE_PRICE_TRIPLE_WATCH") ?? Deno.env.get("STRIPE_PRICE_TRIPLE"),
 };
 
 Deno.serve(async (req) => {

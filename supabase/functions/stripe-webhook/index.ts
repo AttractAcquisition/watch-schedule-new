@@ -3,9 +3,9 @@ import { CORS } from "../_shared/cors.ts";
 import { adminClient } from "../_shared/client.ts";
 
 const PLAN_FROM_PRICE: Record<string, string> = {
-  [Deno.env.get("STRIPE_PRICE_SOLO") ?? ""]: "solo_watch",
-  [Deno.env.get("STRIPE_PRICE_DUAL") ?? ""]: "dual_watch",
-  [Deno.env.get("STRIPE_PRICE_TRIPLE") ?? ""]: "triple_watch",
+  [Deno.env.get("STRIPE_PRICE_SOLO_WATCH") ?? Deno.env.get("STRIPE_PRICE_SOLO") ?? ""]: "solo_watch",
+  [Deno.env.get("STRIPE_PRICE_DUAL_WATCH") ?? Deno.env.get("STRIPE_PRICE_DUAL") ?? ""]: "dual_watch",
+  [Deno.env.get("STRIPE_PRICE_TRIPLE_WATCH") ?? Deno.env.get("STRIPE_PRICE_TRIPLE") ?? ""]: "triple_watch",
 };
 
 async function upsertSubscription(supabase: ReturnType<typeof adminClient>, data: {
