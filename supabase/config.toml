@@ -29,12 +29,11 @@ site_url = "http://localhost:5173"
 additional_redirect_urls = ["https://app.watchschedule.com"]
 jwt_expiry = 3600
 enable_signup = true
-email_confirmations = false
 
 [auth.email]
 enable_signup = true
 double_confirm_changes = false
-enable_confirmations = false
+enable_confirmations = true
 
 [edge_runtime]
 enabled = true
