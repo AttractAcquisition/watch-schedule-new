@@ -64,12 +64,15 @@ Deno.serve(async (req) => {
     const data = await response.json();
     const text = data?.content?.[0]?.text ?? "[]";
 
+    // Strip markdown code fences if present
+    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+
     let crew: ExtractedCrew[] = [];
     try {
-      const parsed = JSON.parse(text);
+      const parsed = JSON.parse(cleaned);
       crew = Array.isArray(parsed) ? parsed : [];
     } catch {
-      return err("Failed to parse AI response as JSON.");
+      return err("Could not extract crew data from image. Please try a clearer photo.");
     }
 
     const valid = crew
