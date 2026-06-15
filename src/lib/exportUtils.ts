@@ -1,5 +1,15 @@
 import type { CrewFairnessScoreRow, CrewMemberRow, ScheduleAssignmentRow, ScheduleRunRow } from "./database.types";
 
+// Wrap a value in quotes and escape inner quotes (RFC 4180)
+function q(value: string | number | null | undefined): string {
+  const s = String(value ?? "");
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+function row(...values: (string | number | null | undefined)[]): string {
+  return values.map(q).join(",");
+}
+
 function fmtDate(iso: string) {
   return new Date(iso + "T12:00:00Z").toLocaleDateString("en-GB", {
     day: "2-digit", month: "short", year: "numeric", timeZone: "UTC",
@@ -17,6 +27,7 @@ function assignmentDate(a: ScheduleAssignmentRow) {
 }
 
 export function downloadBlob(content: string, filename: string) {
+  // BOM makes Excel open UTF-8 CSVs correctly
   const blob = new Blob(["﻿" + content], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -37,18 +48,18 @@ export function buildBridgeCSV(
   crewMap: Map<string, CrewMemberRow>,
   vessel: string,
 ) {
-  const rows = [
-    `WatchSchedule – Bridge Schedule – ${vessel}`,
-    `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+  const lines = [
+    row("WatchSchedule - Bridge Schedule", vessel),
+    row("Generated", new Date().toLocaleDateString("en-GB")),
     "",
-    "Date,Day,Watchkeeper,Position,Role",
+    row("Date", "Day", "Watchkeeper", "Position", "Role"),
   ];
   for (const a of assignments) {
     const c = crewMap.get(a.crew_member_id);
     const d = assignmentDate(a);
-    rows.push([fmtDate(d), dayName(d), c?.full_name ?? "", c?.position ?? "", a.watch_role ?? "Watchkeeper"].join(","));
+    lines.push(row(fmtDate(d), dayName(d), c?.full_name, c?.position, a.watch_role ?? "Watchkeeper"));
   }
-  return rows.join("\n");
+  return lines.join("\r\n");
 }
 
 export function buildCrewCSV(
@@ -62,17 +73,22 @@ export function buildCrewCSV(
     list.push(a);
     byMember.set(a.crew_member_id, list);
   }
-  const rows = [`WatchSchedule – Crew Copy – ${vessel}`, `Generated: ${new Date().toLocaleDateString("en-GB")}`, ""];
+  const lines = [
+    row("WatchSchedule - Crew Copy", vessel),
+    row("Generated", new Date().toLocaleDateString("en-GB")),
+    "",
+  ];
   for (const [id, items] of byMember.entries()) {
     const c = crewMap.get(id);
-    rows.push(`${c?.full_name ?? "Unknown"} – ${c?.position ?? ""}`, "Date,Day");
+    lines.push(row(c?.full_name ?? "Unknown", c?.position ?? ""));
+    lines.push(row("Date", "Day"));
     for (const a of items) {
       const d = assignmentDate(a);
-      rows.push(`${fmtDate(d)},${dayName(d)}`);
+      lines.push(row(fmtDate(d), dayName(d)));
     }
-    rows.push("");
+    lines.push("");
   }
-  return rows.join("\n");
+  return lines.join("\r\n");
 }
 
 export function buildPayrollCSV(
@@ -83,24 +99,29 @@ export function buildPayrollCSV(
   const totals = new Map<string, { name: string; position: string; watches: number; weight: number }>();
   for (const a of assignments) {
     const c = crewMap.get(a.crew_member_id);
-    const entry = totals.get(a.crew_member_id) ?? { name: c?.full_name ?? "", position: c?.position ?? "", watches: 0, weight: 0 };
+    const entry = totals.get(a.crew_member_id) ?? {
+      name: c?.full_name ?? "",
+      position: c?.position ?? "",
+      watches: 0,
+      weight: 0,
+    };
     entry.watches++;
     entry.weight += a.duty_weight ?? 1;
     totals.set(a.crew_member_id, entry);
   }
   const first = assignments[0] ? fmtDate(assignmentDate(assignments[0])) : "";
   const last = assignments[assignments.length - 1] ? fmtDate(assignmentDate(assignments[assignments.length - 1])) : "";
-  const rows = [
-    `WatchSchedule – Payroll Hours – ${vessel}`,
-    `Generated: ${new Date().toLocaleDateString("en-GB")}`,
-    `Period: ${first} – ${last}`,
+  const lines = [
+    row("WatchSchedule - Payroll Hours", vessel),
+    row("Generated", new Date().toLocaleDateString("en-GB")),
+    row("Period", `${first} to ${last}`),
     "",
-    "Name,Position,Watch Days,Weighted Load,Est. Watch Hours",
+    row("Name", "Position", "Watch Days", "Weighted Load", "Est. Watch Hours"),
   ];
   for (const e of totals.values()) {
-    rows.push([e.name, e.position, e.watches, e.weight.toFixed(2), e.watches * 24].join(","));
+    lines.push(row(e.name, e.position, e.watches, e.weight.toFixed(2), e.watches * 24));
   }
-  return rows.join("\n");
+  return lines.join("\r\n");
 }
 
 export function buildCaptainCSV(
@@ -110,21 +131,20 @@ export function buildCaptainCSV(
   vessel: string,
   run: ScheduleRunRow,
 ) {
-  const rows = [
-    `WatchSchedule – Captain's Report – ${vessel}`,
-    `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+  const lines = [
+    row("WatchSchedule - Captain's Report", vessel),
+    row("Generated", new Date().toLocaleDateString("en-GB")),
     "",
-    `Schedule Fairness Score: ${run.fairness_score ?? "N/A"}%`,
-    `Total Assignments: ${assignments.length}`,
+    row("Schedule Fairness Score", `${run.fairness_score ?? "N/A"}%`),
+    row("Total Assignments", assignments.length),
     "",
-    "Crew Fairness Summary",
-    "Name,Position,Total Watches,Fairness Score,Fairness Debt",
+    row("Name", "Position", "Total Watches", "Fairness Score", "Fairness Debt"),
   ];
   for (const f of fairness) {
     const c = crewMap.get(f.crew_member_id);
-    rows.push([c?.full_name ?? "", c?.position ?? "", f.total_duties, f.crew_fairness_score, f.fairness_debt].join(","));
+    lines.push(row(c?.full_name, c?.position, f.total_duties, f.crew_fairness_score, f.fairness_debt));
   }
-  return rows.join("\n");
+  return lines.join("\r\n");
 }
 
 export function buildStcwCSV(
@@ -132,18 +152,17 @@ export function buildStcwCSV(
   crewMap: Map<string, CrewMemberRow>,
   vessel: string,
 ) {
-  const rows = [
-    `WatchSchedule – Port State / STCW Hours of Rest – ${vessel}`,
-    `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+  const lines = [
+    row("WatchSchedule - Port State / STCW Hours of Rest", vessel),
+    row("Generated", new Date().toLocaleDateString("en-GB")),
     "",
-    "Name,Position,Date,Watch Hours,Rest Hours (Est.),STCW Compliant",
+    row("Name", "Position", "Date", "Watch Hours", "Rest Hours (Est.)", "STCW Compliant"),
   ];
   for (const a of assignments) {
     const c = crewMap.get(a.crew_member_id);
-    const d = assignmentDate(a);
-    rows.push([c?.full_name ?? "", c?.position ?? "", fmtDate(d), 24, 0, "Review"].join(","));
+    lines.push(row(c?.full_name, c?.position, fmtDate(assignmentDate(a)), 24, 0, "Review"));
   }
-  return rows.join("\n");
+  return lines.join("\r\n");
 }
 
 export type ExportType = "bridge" | "captain" | "crew" | "payroll" | "port_state";
