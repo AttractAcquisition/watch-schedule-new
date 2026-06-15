@@ -23,6 +23,11 @@ Deno.serve(async (req) => {
     const { image_base64, media_type } = await req.json();
     if (!image_base64) return err("image_base64 is required.");
 
+    // Anthropic max image size is ~5 MB of raw bytes (roughly 6.7 MB base64)
+    if (image_base64.length > 7_000_000) {
+      return err("Image is too large. Please use a photo under 5 MB.");
+    }
+
     const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
     if (!apiKey) return err("ANTHROPIC_API_KEY not configured.", 500);
 
