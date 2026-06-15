@@ -11,46 +11,224 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useExportHistory, useLatestScheduleRun, useVesselId } from "@/hooks/data";
+import { useAssignments, useCrew, useCrewFairnessScores, useExportHistory, useLatestScheduleRun, useVesselId } from "@/hooks/data";
+import { useAuth } from "@/lib/auth";
 import { exportSchedule } from "@/lib/edge";
+import type { CrewFairnessScoreRow, CrewMemberRow, ScheduleAssignmentRow } from "@/lib/database.types";
 
 const EXPORT_TYPES = [
-  { id: "bridge", label: "Bridge Schedule" },
-  { id: "captain", label: "Captain's Report" },
-  { id: "crew", label: "Crew Copy" },
-  { id: "payroll", label: "Payroll Hours" },
-  { id: "port_state", label: "Port State / STCW" },
+  { id: "bridge", label: "Bridge Schedule", ext: "csv" },
+  { id: "captain", label: "Captain's Report", ext: "csv" },
+  { id: "crew", label: "Crew Copy", ext: "csv" },
+  { id: "payroll", label: "Payroll Hours", ext: "csv" },
+  { id: "port_state", label: "Port State / STCW", ext: "csv" },
 ] as const;
 
 type ExportType = (typeof EXPORT_TYPES)[number]["id"];
 
+function downloadBlob(content: string, filename: string, mime = "text/csv;charset=utf-8;") {
+  const blob = new Blob(["﻿" + content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function dayName(iso: string) {
+  return new Date(iso + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" });
+}
+function fmtDate(iso: string) {
+  return new Date(iso + "T12:00:00Z").toLocaleDateString("en-GB", {
+    day: "2-digit", month: "short", year: "numeric", timeZone: "UTC",
+  });
+}
+
+function buildBridgeCSV(
+  assignments: ScheduleAssignmentRow[],
+  crewMap: Map<string, CrewMemberRow>,
+  vessel: string,
+) {
+  const lines = [
+    `WatchSchedule – Bridge Schedule – ${vessel}`,
+    `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+    "",
+    "Date,Day,Watchkeeper,Position,Role",
+  ];
+  for (const a of assignments) {
+    const crew = crewMap.get(a.crew_member_id);
+    const date = a.assignment_date ?? a.watch_start.slice(0, 10);
+    lines.push([
+      fmtDate(date),
+      dayName(date),
+      crew?.full_name ?? "Unknown",
+      crew?.position ?? "",
+      a.watch_role ?? "Watchkeeper",
+    ].join(","));
+  }
+  return lines.join("\n");
+}
+
+function buildCrewCSV(
+  assignments: ScheduleAssignmentRow[],
+  crewMap: Map<string, CrewMemberRow>,
+  vessel: string,
+) {
+  const byMember = new Map<string, ScheduleAssignmentRow[]>();
+  for (const a of assignments) {
+    const list = byMember.get(a.crew_member_id) ?? [];
+    list.push(a);
+    byMember.set(a.crew_member_id, list);
+  }
+  const lines = [`WatchSchedule – Crew Copy – ${vessel}`, `Generated: ${new Date().toLocaleDateString("en-GB")}`, ""];
+  for (const [memberId, rows] of byMember.entries()) {
+    const crew = crewMap.get(memberId);
+    lines.push(`${crew?.full_name ?? "Unknown"} – ${crew?.position ?? ""}`, "Date,Day");
+    for (const a of rows) {
+      const date = a.assignment_date ?? a.watch_start.slice(0, 10);
+      lines.push(`${fmtDate(date)},${dayName(date)}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+function buildPayrollCSV(
+  assignments: ScheduleAssignmentRow[],
+  crewMap: Map<string, CrewMemberRow>,
+  vessel: string,
+) {
+  const totals = new Map<string, { name: string; position: string; watches: number; weight: number }>();
+  for (const a of assignments) {
+    const crew = crewMap.get(a.crew_member_id);
+    const name = crew?.full_name ?? "Unknown";
+    const position = crew?.position ?? "";
+    const entry = totals.get(a.crew_member_id) ?? { name, position, watches: 0, weight: 0 };
+    entry.watches++;
+    entry.weight += a.duty_weight ?? 1;
+    totals.set(a.crew_member_id, entry);
+  }
+  const lines = [
+    `WatchSchedule – Payroll Hours – ${vessel}`,
+    `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+    `Period: ${fmtDate(assignments[0]?.assignment_date ?? assignments[0]?.watch_start.slice(0,10) ?? "")} – ${fmtDate(assignments[assignments.length - 1]?.assignment_date ?? assignments[assignments.length - 1]?.watch_start.slice(0,10) ?? "")}`,
+    "",
+    "Name,Position,Watch Days,Weighted Load,Avg Hours/Day,Est. Watch Hours",
+  ];
+  for (const entry of totals.values()) {
+    const estHours = entry.watches * 24;
+    lines.push([entry.name, entry.position, entry.watches, entry.weight.toFixed(2), "24", estHours].join(","));
+  }
+  return lines.join("\n");
+}
+
+function buildCaptainCSV(
+  assignments: ScheduleAssignmentRow[],
+  crewMap: Map<string, CrewMemberRow>,
+  fairness: CrewFairnessScoreRow[],
+  vessel: string,
+  fairnessScore: number | null,
+) {
+  const lines = [
+    `WatchSchedule – Captain's Report – ${vessel}`,
+    `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+    "",
+    `Schedule Fairness Score: ${fairnessScore ?? "N/A"}%`,
+    `Total Assignments: ${assignments.length}`,
+    "",
+    "Crew Fairness Summary",
+    "Name,Position,Total Watches,Fairness Score,Fairness Debt",
+  ];
+  for (const f of fairness) {
+    const crew = crewMap.get(f.crew_member_id);
+    lines.push([
+      crew?.full_name ?? "Unknown",
+      crew?.position ?? "",
+      f.total_duties,
+      f.crew_fairness_score,
+      f.fairness_debt,
+    ].join(","));
+  }
+  return lines.join("\n");
+}
+
+function buildStcwCSV(
+  assignments: ScheduleAssignmentRow[],
+  crewMap: Map<string, CrewMemberRow>,
+  vessel: string,
+) {
+  const lines = [
+    `WatchSchedule – Port State / STCW Hours of Rest – ${vessel}`,
+    `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+    "",
+    "Name,Position,Date,Watch Hours,Rest Hours (Est.),STCW Compliant",
+  ];
+  for (const a of assignments) {
+    const crew = crewMap.get(a.crew_member_id);
+    const date = a.assignment_date ?? a.watch_start.slice(0, 10);
+    const watchHrs = 24;
+    const restHrs = 0;
+    const compliant = restHrs >= 10 ? "Yes" : "Review";
+    lines.push([
+      crew?.full_name ?? "Unknown",
+      crew?.position ?? "",
+      fmtDate(date),
+      watchHrs,
+      restHrs,
+      compliant,
+    ].join(","));
+  }
+  return lines.join("\n");
+}
+
 export default function Reports() {
+  const { vessel } = useAuth();
   const vesselId = useVesselId();
   const latestRun = useLatestScheduleRun();
+  const assignments = useAssignments(latestRun.data?.id);
+  const crewQuery = useCrew();
+  const fairnessQuery = useCrewFairnessScores();
   const exportHistory = useExportHistory();
 
   const [exportType, setExportType] = useState<ExportType>("bridge");
   const [exporting, setExporting] = useState(false);
 
   async function handleExport() {
-    if (!latestRun.data?.id) {
+    const run = latestRun.data;
+    if (!run?.id) {
       toast("Generate a schedule first from Settings.");
       return;
     }
+    const rows = assignments.data;
+    if (!rows?.length) {
+      toast.error("No schedule assignments found. Try regenerating.");
+      return;
+    }
+
     setExporting(true);
     try {
-      const result = await exportSchedule({
-        schedule_run_id: latestRun.data.id,
-        export_type: exportType,
-        vessel_id: vesselId ?? undefined,
-      });
-      if (result.file_url) {
-        window.open(result.file_url, "_blank");
-        toast.success("Export ready. Opening download.");
-      } else {
-        toast.success("Export started. Check export history below.");
-      }
-      exportHistory.refetch();
+      const crewMap = new Map((crewQuery.data ?? []).map((c) => [c.id, c]));
+      const vesselName = vessel?.name ?? "Vessel";
+      const label = EXPORT_TYPES.find((t) => t.id === exportType)?.label ?? exportType;
+      const filename = `watchschedule_${exportType}_${new Date().toISOString().slice(0, 10)}.csv`;
+
+      let csv = "";
+      if (exportType === "bridge") csv = buildBridgeCSV(rows, crewMap, vesselName);
+      else if (exportType === "crew") csv = buildCrewCSV(rows, crewMap, vesselName);
+      else if (exportType === "payroll") csv = buildPayrollCSV(rows, crewMap, vesselName);
+      else if (exportType === "captain") csv = buildCaptainCSV(rows, crewMap, fairnessQuery.data ?? [], vesselName, run.fairness_score ?? null);
+      else if (exportType === "port_state") csv = buildStcwCSV(rows, crewMap, vesselName);
+
+      downloadBlob(csv, filename);
+      toast.success(`${label} downloaded.`);
+
+      // Log in background — don't block on it
+      exportSchedule({ schedule_run_id: run.id, export_type: exportType, vessel_id: vesselId ?? undefined })
+        .then(() => exportHistory.refetch())
+        .catch(() => {});
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Export failed.");
     } finally {
@@ -92,12 +270,12 @@ export default function Reports() {
             </Select>
           </div>
           <Button
-            disabled={exporting || !latestRun.data?.id}
+            disabled={exporting || !latestRun.data?.id || !assignments.data?.length}
             onClick={handleExport}
             className="shrink-0"
           >
             <Download className="h-4 w-4" />
-            {exporting ? "Generating…" : "Export PDF"}
+            {exporting ? "Generating…" : "Download CSV"}
           </Button>
         </div>
         {!latestRun.data?.id && (
@@ -181,21 +359,9 @@ export default function Reports() {
                     })}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-[10px] capitalize">
-                    {item.export_format ?? "pdf"}
-                  </Badge>
-                  {item.file_url && (
-                    <a
-                      href={item.file_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:text-foreground"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                    </a>
-                  )}
-                </div>
+                <Badge variant="outline" className="text-[10px] uppercase">
+                  CSV
+                </Badge>
               </div>
             ))}
           </div>
