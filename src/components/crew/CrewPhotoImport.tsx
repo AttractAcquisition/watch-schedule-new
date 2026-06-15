@@ -10,17 +10,27 @@ interface Props {
 }
 
 function resizeImageToBase64(dataUrl: string, maxPx = 1280): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const img = new Image();
+    img.onerror = () => reject(new Error("Failed to load image for resizing."));
     img.onload = () => {
-      const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
-      const w = Math.round(img.width * scale);
-      const h = Math.round(img.height * scale);
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL("image/jpeg", 0.85));
+      try {
+        const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Canvas not supported."));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      } catch (e) {
+        reject(e);
+      }
     };
     img.src = dataUrl;
   });
