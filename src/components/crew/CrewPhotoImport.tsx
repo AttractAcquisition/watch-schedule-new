@@ -9,6 +9,23 @@ interface Props {
   onExtracted: (crew: ExtractedCrewMember[]) => void;
 }
 
+function resizeImageToBase64(dataUrl: string, maxPx = 1280): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    img.src = dataUrl;
+  });
+}
+
 export function CrewPhotoImport({ onExtracted }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [scanning, setScanning] = useState(false);
@@ -23,13 +40,13 @@ export function CrewPhotoImport({ onExtracted }: Props) {
 
     const reader = new FileReader();
     reader.onload = async (e) => {
-      const dataUrl = e.target?.result as string;
-      setPreview(dataUrl);
-      const base64 = dataUrl.split(",")[1];
-      const mediaType = file.type as "image/jpeg" | "image/png" | "image/webp";
+      const originalDataUrl = e.target?.result as string;
+      setPreview(originalDataUrl);
 
       try {
-        const crew = await extractCrewFromPhoto(base64, mediaType);
+        const resizedDataUrl = await resizeImageToBase64(originalDataUrl);
+        const base64 = resizedDataUrl.split(",")[1];
+        const crew = await extractCrewFromPhoto(base64, "image/jpeg");
         if (!crew.length) {
           toast.error("No crew found in image. Try a clearer photo of the crew list.");
         } else {
