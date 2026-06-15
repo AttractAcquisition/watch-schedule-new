@@ -20,6 +20,7 @@ import {
   useVesselId,
 } from "@/hooks/data";
 import { activateCharterMode, exportSchedule, resumeCharterMode } from "@/lib/edge";
+import { buildBridgeCSV, downloadBlob, exportFilename } from "@/lib/exportUtils";
 import { calculateFairness } from "@/lib/fairness";
 import { PLAN_LABEL } from "@/lib/constants";
 import {
@@ -153,17 +154,22 @@ export default function Dashboard() {
   const maxMonth = startOfMonth(addMonths(startOfMonth(new Date()), 3));
 
   async function handleExport() {
-    if (!latestRun.data?.id) {
-      toast("No schedule yet. Save & regenerate from Settings first.");
+    const run = latestRun.data;
+    if (!run?.id) {
+      toast.error("No schedule yet. Generate one from Settings first.");
+      return;
+    }
+    const rows = assignmentsQuery.data;
+    if (!rows?.length) {
+      toast.error("No assignments found. Generate a schedule from Settings first.");
       return;
     }
     try {
-      const result = await exportSchedule({
-        schedule_run_id: latestRun.data.id,
-        export_type: "bridge",
-        vessel_id: vesselId ?? undefined,
-      });
-      toast.success(result.file_url ? "Schedule exported." : "Export started.");
+      const crewMap = new Map((crewQuery.data ?? []).map((c) => [c.id, c]));
+      const csv = buildBridgeCSV(rows, crewMap, vessel?.name ?? "Vessel");
+      downloadBlob(csv, exportFilename("bridge"));
+      toast.success("Bridge schedule downloaded.");
+      exportSchedule({ schedule_run_id: run.id, export_type: "bridge", vessel_id: vesselId ?? undefined }).catch(() => {});
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Export failed.");
     }

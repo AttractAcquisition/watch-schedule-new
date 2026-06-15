@@ -11,178 +11,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useAssignments, useCrew, useCrewFairnessScores, useExportHistory, useLatestScheduleRun, useVesselId } from "@/hooks/data";
+import {
+  useAssignments,
+  useCrew,
+  useCrewFairnessScores,
+  useExportHistory,
+  useLatestScheduleRun,
+  useVesselId,
+} from "@/hooks/data";
 import { useAuth } from "@/lib/auth";
 import { exportSchedule } from "@/lib/edge";
-import type { CrewFairnessScoreRow, CrewMemberRow, ScheduleAssignmentRow } from "@/lib/database.types";
+import { buildExportCSV, downloadBlob, exportFilename, type ExportType } from "@/lib/exportUtils";
 
-const EXPORT_TYPES = [
-  { id: "bridge", label: "Bridge Schedule", ext: "csv" },
-  { id: "captain", label: "Captain's Report", ext: "csv" },
-  { id: "crew", label: "Crew Copy", ext: "csv" },
-  { id: "payroll", label: "Payroll Hours", ext: "csv" },
-  { id: "port_state", label: "Port State / STCW", ext: "csv" },
-] as const;
-
-type ExportType = (typeof EXPORT_TYPES)[number]["id"];
-
-function downloadBlob(content: string, filename: string, mime = "text/csv;charset=utf-8;") {
-  const blob = new Blob(["﻿" + content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-function dayName(iso: string) {
-  return new Date(iso + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" });
-}
-function fmtDate(iso: string) {
-  return new Date(iso + "T12:00:00Z").toLocaleDateString("en-GB", {
-    day: "2-digit", month: "short", year: "numeric", timeZone: "UTC",
-  });
-}
-
-function buildBridgeCSV(
-  assignments: ScheduleAssignmentRow[],
-  crewMap: Map<string, CrewMemberRow>,
-  vessel: string,
-) {
-  const lines = [
-    `WatchSchedule – Bridge Schedule – ${vessel}`,
-    `Generated: ${new Date().toLocaleDateString("en-GB")}`,
-    "",
-    "Date,Day,Watchkeeper,Position,Role",
-  ];
-  for (const a of assignments) {
-    const crew = crewMap.get(a.crew_member_id);
-    const date = a.assignment_date ?? a.watch_start.slice(0, 10);
-    lines.push([
-      fmtDate(date),
-      dayName(date),
-      crew?.full_name ?? "Unknown",
-      crew?.position ?? "",
-      a.watch_role ?? "Watchkeeper",
-    ].join(","));
-  }
-  return lines.join("\n");
-}
-
-function buildCrewCSV(
-  assignments: ScheduleAssignmentRow[],
-  crewMap: Map<string, CrewMemberRow>,
-  vessel: string,
-) {
-  const byMember = new Map<string, ScheduleAssignmentRow[]>();
-  for (const a of assignments) {
-    const list = byMember.get(a.crew_member_id) ?? [];
-    list.push(a);
-    byMember.set(a.crew_member_id, list);
-  }
-  const lines = [`WatchSchedule – Crew Copy – ${vessel}`, `Generated: ${new Date().toLocaleDateString("en-GB")}`, ""];
-  for (const [memberId, rows] of byMember.entries()) {
-    const crew = crewMap.get(memberId);
-    lines.push(`${crew?.full_name ?? "Unknown"} – ${crew?.position ?? ""}`, "Date,Day");
-    for (const a of rows) {
-      const date = a.assignment_date ?? a.watch_start.slice(0, 10);
-      lines.push(`${fmtDate(date)},${dayName(date)}`);
-    }
-    lines.push("");
-  }
-  return lines.join("\n");
-}
-
-function buildPayrollCSV(
-  assignments: ScheduleAssignmentRow[],
-  crewMap: Map<string, CrewMemberRow>,
-  vessel: string,
-) {
-  const totals = new Map<string, { name: string; position: string; watches: number; weight: number }>();
-  for (const a of assignments) {
-    const crew = crewMap.get(a.crew_member_id);
-    const name = crew?.full_name ?? "Unknown";
-    const position = crew?.position ?? "";
-    const entry = totals.get(a.crew_member_id) ?? { name, position, watches: 0, weight: 0 };
-    entry.watches++;
-    entry.weight += a.duty_weight ?? 1;
-    totals.set(a.crew_member_id, entry);
-  }
-  const lines = [
-    `WatchSchedule – Payroll Hours – ${vessel}`,
-    `Generated: ${new Date().toLocaleDateString("en-GB")}`,
-    `Period: ${fmtDate(assignments[0]?.assignment_date ?? assignments[0]?.watch_start.slice(0,10) ?? "")} – ${fmtDate(assignments[assignments.length - 1]?.assignment_date ?? assignments[assignments.length - 1]?.watch_start.slice(0,10) ?? "")}`,
-    "",
-    "Name,Position,Watch Days,Weighted Load,Avg Hours/Day,Est. Watch Hours",
-  ];
-  for (const entry of totals.values()) {
-    const estHours = entry.watches * 24;
-    lines.push([entry.name, entry.position, entry.watches, entry.weight.toFixed(2), "24", estHours].join(","));
-  }
-  return lines.join("\n");
-}
-
-function buildCaptainCSV(
-  assignments: ScheduleAssignmentRow[],
-  crewMap: Map<string, CrewMemberRow>,
-  fairness: CrewFairnessScoreRow[],
-  vessel: string,
-  fairnessScore: number | null,
-) {
-  const lines = [
-    `WatchSchedule – Captain's Report – ${vessel}`,
-    `Generated: ${new Date().toLocaleDateString("en-GB")}`,
-    "",
-    `Schedule Fairness Score: ${fairnessScore ?? "N/A"}%`,
-    `Total Assignments: ${assignments.length}`,
-    "",
-    "Crew Fairness Summary",
-    "Name,Position,Total Watches,Fairness Score,Fairness Debt",
-  ];
-  for (const f of fairness) {
-    const crew = crewMap.get(f.crew_member_id);
-    lines.push([
-      crew?.full_name ?? "Unknown",
-      crew?.position ?? "",
-      f.total_duties,
-      f.crew_fairness_score,
-      f.fairness_debt,
-    ].join(","));
-  }
-  return lines.join("\n");
-}
-
-function buildStcwCSV(
-  assignments: ScheduleAssignmentRow[],
-  crewMap: Map<string, CrewMemberRow>,
-  vessel: string,
-) {
-  const lines = [
-    `WatchSchedule – Port State / STCW Hours of Rest – ${vessel}`,
-    `Generated: ${new Date().toLocaleDateString("en-GB")}`,
-    "",
-    "Name,Position,Date,Watch Hours,Rest Hours (Est.),STCW Compliant",
-  ];
-  for (const a of assignments) {
-    const crew = crewMap.get(a.crew_member_id);
-    const date = a.assignment_date ?? a.watch_start.slice(0, 10);
-    const watchHrs = 24;
-    const restHrs = 0;
-    const compliant = restHrs >= 10 ? "Yes" : "Review";
-    lines.push([
-      crew?.full_name ?? "Unknown",
-      crew?.position ?? "",
-      fmtDate(date),
-      watchHrs,
-      restHrs,
-      compliant,
-    ].join(","));
-  }
-  return lines.join("\n");
-}
+const EXPORT_TYPES: { id: ExportType; label: string }[] = [
+  { id: "bridge",     label: "Bridge Schedule" },
+  { id: "captain",    label: "Captain's Report" },
+  { id: "crew",       label: "Crew Copy" },
+  { id: "payroll",    label: "Payroll Hours" },
+  { id: "port_state", label: "Port State / STCW" },
+];
 
 export default function Reports() {
   const { vessel } = useAuth();
@@ -196,15 +43,17 @@ export default function Reports() {
   const [exportType, setExportType] = useState<ExportType>("bridge");
   const [exporting, setExporting] = useState(false);
 
+  const hasAssignments = (assignments.data?.length ?? 0) > 0;
+
   async function handleExport() {
     const run = latestRun.data;
     if (!run?.id) {
-      toast("Generate a schedule first from Settings.");
+      toast.error("Generate a schedule first from Settings.");
       return;
     }
     const rows = assignments.data;
     if (!rows?.length) {
-      toast.error("No schedule assignments found. Try regenerating.");
+      toast.error("No schedule assignments found. Generate a schedule first.");
       return;
     }
 
@@ -213,19 +62,12 @@ export default function Reports() {
       const crewMap = new Map((crewQuery.data ?? []).map((c) => [c.id, c]));
       const vesselName = vessel?.name ?? "Vessel";
       const label = EXPORT_TYPES.find((t) => t.id === exportType)?.label ?? exportType;
-      const filename = `watchschedule_${exportType}_${new Date().toISOString().slice(0, 10)}.csv`;
 
-      let csv = "";
-      if (exportType === "bridge") csv = buildBridgeCSV(rows, crewMap, vesselName);
-      else if (exportType === "crew") csv = buildCrewCSV(rows, crewMap, vesselName);
-      else if (exportType === "payroll") csv = buildPayrollCSV(rows, crewMap, vesselName);
-      else if (exportType === "captain") csv = buildCaptainCSV(rows, crewMap, fairnessQuery.data ?? [], vesselName, run.fairness_score ?? null);
-      else if (exportType === "port_state") csv = buildStcwCSV(rows, crewMap, vesselName);
-
-      downloadBlob(csv, filename);
+      const csv = buildExportCSV(exportType, rows, crewMap, vesselName, run, fairnessQuery.data ?? []);
+      downloadBlob(csv, exportFilename(exportType));
       toast.success(`${label} downloaded.`);
 
-      // Log in background — don't block on it
+      // Log in background
       exportSchedule({ schedule_run_id: run.id, export_type: exportType, vessel_id: vesselId ?? undefined })
         .then(() => exportHistory.refetch())
         .catch(() => {});
@@ -270,7 +112,7 @@ export default function Reports() {
             </Select>
           </div>
           <Button
-            disabled={exporting || !latestRun.data?.id || !assignments.data?.length}
+            disabled={exporting || !hasAssignments}
             onClick={handleExport}
             className="shrink-0"
           >
@@ -278,13 +120,12 @@ export default function Reports() {
             {exporting ? "Generating…" : "Download CSV"}
           </Button>
         </div>
-        {!latestRun.data?.id && (
+        {!latestRun.data?.id && !latestRun.isLoading && (
           <p className="mt-3 text-xs text-muted-foreground">
-            No schedule available. Generate one from{" "}
+            No schedule yet.{" "}
             <a href="/settings" className="text-primary hover:underline">
-              Settings
+              Generate one in Settings.
             </a>
-            .
           </p>
         )}
       </div>
@@ -294,31 +135,13 @@ export default function Reports() {
         <div className="mb-3 text-sm font-medium">Export types</div>
         <div className="grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-3">
           {[
-            {
-              title: "Bridge Schedule",
-              desc: "Daily watch assignments formatted for bridge display. Shows assigned watchkeeper per day.",
-            },
-            {
-              title: "Captain's Report",
-              desc: "Summary report with fairness scores, debt analysis, and schedule health for management review.",
-            },
-            {
-              title: "Crew Copy",
-              desc: "Simplified personal schedule cards for crew members to keep in their cabin.",
-            },
-            {
-              title: "Payroll Hours",
-              desc: "Watch hours breakdown for payroll and overtime calculation including weighted holiday duties.",
-            },
-            {
-              title: "Port State / STCW",
-              desc: "STCW hours of rest compliance report for Port State Control inspections.",
-            },
+            { title: "Bridge Schedule",     desc: "Daily watch assignments for bridge display. Shows watchkeeper per day." },
+            { title: "Captain's Report",    desc: "Fairness scores, debt analysis and schedule health for management." },
+            { title: "Crew Copy",           desc: "Personal schedule per crew member, grouped by name." },
+            { title: "Payroll Hours",       desc: "Watch count and weighted load for payroll and overtime calculation." },
+            { title: "Port State / STCW",   desc: "STCW hours of rest report for Port State Control inspections." },
           ].map((item) => (
-            <div
-              key={item.title}
-              className="rounded border border-border bg-background/35 p-3"
-            >
+            <div key={item.title} className="rounded border border-border bg-background/35 p-3">
               <div className="flex items-center gap-2">
                 <FileText className="h-3.5 w-3.5 text-muted-foreground" />
                 <span className="font-medium text-foreground">{item.title}</span>
@@ -335,33 +158,23 @@ export default function Reports() {
           <div className="text-sm font-medium">Export history</div>
         </div>
         {history.length === 0 ? (
-          <div className="py-12 text-center text-sm text-muted-foreground">
-            No exports yet.
-          </div>
+          <div className="py-12 text-center text-sm text-muted-foreground">No exports yet.</div>
         ) : (
           <div className="divide-y divide-border">
             {history.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between px-5 py-3"
-              >
+              <div key={item.id} className="flex items-center justify-between px-5 py-3">
                 <div>
                   <div className="text-sm font-medium capitalize">
                     {item.export_type?.replace(/_/g, " ")}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {new Date(item.created_at).toLocaleDateString("en-GB", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
+                      day: "numeric", month: "short", year: "numeric",
+                      hour: "2-digit", minute: "2-digit",
                     })}
                   </div>
                 </div>
-                <Badge variant="outline" className="text-[10px] uppercase">
-                  CSV
-                </Badge>
+                <Badge variant="outline" className="text-[10px] uppercase">CSV</Badge>
               </div>
             ))}
           </div>
