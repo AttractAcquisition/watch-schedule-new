@@ -332,20 +332,30 @@ export default function Settings() {
               </div>
             )}
           </div>
-          <Button
-            variant="outline"
-            className="mt-4"
-            disabled={portalBusy}
-            onClick={handleBillingPortal}
-          >
-            {portalBusy ? (
-              "Opening…"
-            ) : (
-              <span className="flex items-center gap-2">
-                Manage billing <ExternalLink className="h-3.5 w-3.5" />
-              </span>
-            )}
-          </Button>
+          {subscription?.stripe_customer_id ? (
+            <Button
+              variant="outline"
+              className="mt-4"
+              disabled={portalBusy}
+              onClick={handleBillingPortal}
+            >
+              {portalBusy ? (
+                "Opening…"
+              ) : (
+                <span className="flex items-center gap-2">
+                  Manage billing <ExternalLink className="h-3.5 w-3.5" />
+                </span>
+              )}
+            </Button>
+          ) : (
+            <p className="mt-4 text-xs text-muted-foreground">
+              Billing portal not available for this account. Contact{" "}
+              <a href="mailto:support@watchschedule.com" className="text-primary hover:underline">
+                support@watchschedule.com
+              </a>{" "}
+              to manage your subscription.
+            </p>
+          )}
         </Section>
       </div>
     </AppShell>

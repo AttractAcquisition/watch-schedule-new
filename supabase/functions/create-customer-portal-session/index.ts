@@ -23,7 +23,12 @@ Deno.serve(async (req) => {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (!sub?.stripe_customer_id) return err("No Stripe customer found.");
+    if (!sub?.stripe_customer_id) {
+      return err(
+        "No billing account found. If you subscribed via a previous version of the app, please contact support@watchschedule.com to link your account.",
+        400,
+      );
+    }
 
     const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" });
     const session = await stripe.billingPortal.sessions.create({
