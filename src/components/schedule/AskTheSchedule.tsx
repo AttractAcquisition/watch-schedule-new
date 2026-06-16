@@ -1,8 +1,38 @@
 import { FormEvent, KeyboardEvent, useRef, useState } from "react";
 import { Loader2, Send } from "lucide-react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { askTheSchedule, type AskTheScheduleMessage } from "@/lib/edge";
 import { cn } from "@/lib/utils";
+
+const markdownComponents: Components = {
+  h1: ({ children }) => <h4 className="mb-1.5 mt-2 text-sm font-semibold text-foreground first:mt-0">{children}</h4>,
+  h2: ({ children }) => <h4 className="mb-1.5 mt-2 text-sm font-semibold text-foreground first:mt-0">{children}</h4>,
+  h3: ({ children }) => <h5 className="mb-1 mt-2 text-[13px] font-semibold text-foreground first:mt-0">{children}</h5>,
+  p: ({ children }) => <p className="my-1.5 first:mt-0 last:mb-0">{children}</p>,
+  ul: ({ children }) => <ul className="my-1.5 list-disc space-y-1 pl-4">{children}</ul>,
+  ol: ({ children }) => <ol className="my-1.5 list-decimal space-y-1 pl-4">{children}</ol>,
+  li: ({ children }) => <li className="pl-0.5">{children}</li>,
+  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+  code: ({ children }) => (
+    <code className="rounded border border-border bg-background/70 px-1 py-0.5 font-mono text-[12px] text-foreground">
+      {children}
+    </code>
+  ),
+  pre: ({ children }) => (
+    <pre className="my-2 overflow-x-auto rounded-md border border-border bg-background/70 p-2 text-[12px] leading-relaxed">
+      {children}
+    </pre>
+  ),
+  table: ({ children }) => (
+    <div className="my-2 overflow-x-auto">
+      <table className="w-full border-collapse text-[12px]">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => <th className="border border-border px-2 py-1 text-left font-semibold text-foreground">{children}</th>,
+  td: ({ children }) => <td className="border border-border px-2 py-1">{children}</td>,
+};
 
 export function AskTheSchedule() {
   const [messages, setMessages] = useState<AskTheScheduleMessage[]>([
@@ -65,7 +95,16 @@ export function AskTheSchedule() {
                 : "mr-6 border border-border bg-surface text-muted-foreground",
             )}
           >
-            {message.content}
+            {message.role === "assistant" ? (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={markdownComponents}
+              >
+                {message.content}
+              </ReactMarkdown>
+            ) : (
+              message.content
+            )}
           </div>
         ))}
         {loading && (
