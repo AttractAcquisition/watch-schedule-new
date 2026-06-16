@@ -142,7 +142,7 @@ export function buildCaptainCSV(
   ];
   for (const f of fairness) {
     const c = crewMap.get(f.crew_member_id);
-    lines.push(row(c?.full_name, c?.position, f.total_duties, f.crew_fairness_score, f.fairness_debt));
+    lines.push(row(c?.full_name, c?.position, f.total_watches, f.crew_fairness_score, f.fairness_debt));
   }
   return lines.join("\r\n");
 }

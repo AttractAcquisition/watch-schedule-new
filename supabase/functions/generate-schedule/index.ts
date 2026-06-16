@@ -129,14 +129,19 @@ Deno.serve(async (req) => {
     await supabase.from("crew_fairness_scores").insert(fairnessRows);
 
     // Insert health score
-    await supabase.from("schedule_health_scores").insert({
+    const coverageGaps = result.warnings.filter((w) => w.startsWith("No crew available")).length;
+    const resourceShortages = result.warnings.filter((w) => w.startsWith("No eligible crew")).length;
+    const { error: healthErr } = await supabase.from("schedule_health_scores").insert({
       vessel_id,
       schedule_run_id: run.id,
-      schedule_fairness_score: result.fairness_score,
+      coverage_gaps: coverageGaps,
+      resource_shortages: resourceShortages,
+      excessive_overrides: 0,
+      consecutive_duty_risk: 0,
       schedule_health_score: result.fairness_score,
       rotation_stability_score: Math.min(100, result.fairness_score + 5),
-      coverage_score: result.assignments.length > 0 ? 100 : 0,
     });
+    if (healthErr) return err(healthErr.message);
 
     // Insert warnings as explanations
     if (result.warnings.length) {

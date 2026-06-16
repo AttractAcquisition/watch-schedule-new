@@ -240,7 +240,7 @@ export default function Fairness() {
           <div className="space-y-2">
             {overrides.data!.slice(0, 5).map((o) => (
               <div key={o.id} className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">{o.assignment_date}</span>
+                <span className="text-muted-foreground">{new Date(o.created_at).toLocaleDateString("en-GB")}</span>
                 <span>→ override applied</span>
               </div>
             ))}

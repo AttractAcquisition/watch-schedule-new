@@ -53,7 +53,7 @@ export interface CrewMemberRow {
   department: "command" | "deck" | "interior" | "engineering" | "unassigned";
   watch_eligible: boolean;
   eligible_roles: string[];
-  status: "active" | "on_leave" | "sick" | "off_vessel" | "training" | "unavailable";
+  status: "active" | "on_leave" | "sick" | "off_vessel" | "training" | "unavailable" | "offboarded";
   is_rotational: boolean;
   is_relief: boolean;
   crew_lifecycle_status: "active" | "joiner" | "leaver" | "archived";
@@ -153,6 +153,9 @@ export interface WatchSettingsRow {
   id: string;
   vessel_id: string;
   schedule_type: "daily_watch";
+  avoid_consecutive: boolean;
+  max_consecutive_days: number;
+  excluded_departments: string[];
   weekend_mode: "standard" | "heavy" | "friday_sunday" | "saturday_sunday" | "custom";
   duty_weights: Json;
   rotation_rules: Json;
@@ -172,11 +175,12 @@ export interface CrewFairnessScoreRow {
   crew_fairness_score: number;
   fairness_debt: number;
   historical_fairness_score: number | null;
-  total_duties: number;
-  friday_duties: number;
-  weekend_duties: number;
-  public_holiday_duties: number;
-  christmas_new_year_duties: number;
+  total_watches: number;
+  weighted_load: number;
+  friday_watches: number;
+  weekend_watches: number;
+  holiday_watches: number;
+  christmas_watches: number;
   consecutive_duty_risk: number;
   leave_impact: number;
   most_due_rank: Json;
@@ -249,10 +253,12 @@ export interface AuditLogRow {
   created_at: string;
 }
 
+type DbRecord<T> = T & Record<string, unknown>;
+
 type TableShape<Row, Insert = Partial<Row>, Update = Partial<Row>> = {
-  Row: Row;
-  Insert: Insert;
-  Update: Update;
+  Row: DbRecord<Row>;
+  Insert: DbRecord<Insert>;
+  Update: DbRecord<Update>;
   Relationships: [];
 };
 

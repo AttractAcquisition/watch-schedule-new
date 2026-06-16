@@ -53,6 +53,10 @@ const EMPTY_FORM: CrewForm = {
 const STATUS_LABELS: Record<CrewStatus, string> = {
   active: "Active",
   on_leave: "On leave",
+  sick: "Sick",
+  off_vessel: "Off vessel",
+  training: "Training",
+  unavailable: "Unavailable",
   offboarded: "Offboarded",
 };
 
@@ -62,6 +66,10 @@ const STATUS_VARIANTS: Record<
 > = {
   active: "success",
   on_leave: "warning",
+  sick: "warning",
+  off_vessel: "outline",
+  training: "outline",
+  unavailable: "destructive",
   offboarded: "outline",
 };
 

@@ -8,11 +8,11 @@ export interface CrewFairnessMetric {
   crewName: string;
   score: number;
   fairnessDebt: number;
-  totalDuties: number;
-  fridayDuties: number;
-  weekendDuties: number;
-  publicHolidayDuties: number;
-  christmasNewYearDuties: number;
+  totalWatches: number;
+  fridayCount: number;
+  weekendCount: number;
+  holidayCount: number;
+  christmasCount: number;
   consecutiveDutyRisk: number;
   weightedLoad: number;
 }
@@ -123,11 +123,11 @@ export function calculateFairness(
       crewName: member.full_name,
       score,
       fairnessDebt,
-      totalDuties: memberAssignments.length,
-      fridayDuties: fridays,
-      weekendDuties: weekends,
-      publicHolidayDuties: holidays,
-      christmasNewYearDuties: christmasNewYear,
+      totalWatches: memberAssignments.length,
+      fridayCount: fridays,
+      weekendCount: weekends,
+      holidayCount: holidays,
+      christmasCount: christmasNewYear,
       consecutiveDutyRisk: consecutiveRisk,
       weightedLoad: Math.round(load * 100) / 100,
     };

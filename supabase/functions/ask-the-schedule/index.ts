@@ -102,7 +102,7 @@ Deno.serve(async (req) => {
       scheduleRunId
         ? supabase
             .from("crew_fairness_scores")
-            .select("crew_member_id,crew_fairness_score,fairness_debt,total_duties,friday_duties,weekend_duties,public_holiday_duties,consecutive_duty_risk,leave_impact,calculated_at")
+            .select("crew_member_id,crew_fairness_score,fairness_debt,total_watches,weighted_load,friday_watches,weekend_watches,holiday_watches,christmas_watches,consecutive_duty_risk,leave_impact,calculated_at")
             .eq("schedule_run_id", scheduleRunId)
             .order("fairness_debt", { ascending: false })
         : Promise.resolve({ data: [], error: null }),

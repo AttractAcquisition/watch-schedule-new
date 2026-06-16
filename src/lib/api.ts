@@ -180,7 +180,7 @@ export function addCrewMember(input: {
   full_name: string;
   position?: string | null;
   rank?: string | null;
-  department?: string;
+  department?: Department;
   watch_eligible?: boolean;
   status?: string;
 }) {

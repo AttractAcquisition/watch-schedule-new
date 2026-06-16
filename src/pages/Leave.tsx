@@ -34,7 +34,7 @@ import type { LeaveType, LeaveStatus } from "@/lib/types";
 const STATUS_LABELS: Record<LeaveStatus, string> = {
   requested: "Requested",
   approved: "Approved",
-  denied: "Denied",
+  rejected: "Rejected",
   cancelled: "Cancelled",
 };
 
@@ -44,7 +44,7 @@ const STATUS_VARIANTS: Record<
 > = {
   requested: "warning",
   approved: "success",
-  denied: "destructive",
+  rejected: "destructive",
   cancelled: "outline",
 };
 
@@ -144,11 +144,11 @@ export default function Leave() {
 
   async function handleDeny(id: string) {
     try {
-      await updateLeaveRequest(id, { status: "denied" });
-      toast.success("Leave denied.");
+      await updateLeaveRequest(id, { status: "rejected" });
+      toast.success("Leave rejected.");
       leaveQuery.refetch();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to deny.");
+      toast.error(err instanceof Error ? err.message : "Failed to reject.");
     }
   }
 
@@ -179,7 +179,7 @@ export default function Leave() {
 
       {/* Filters */}
       <div className="mb-4 flex flex-wrap gap-2">
-        {(["all", "requested", "approved", "denied"] as const).map((s) => (
+        {(["all", "requested", "approved", "rejected"] as const).map((s) => (
           <button
             key={s}
             onClick={() => setFilterStatus(s)}

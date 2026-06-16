@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
       .from("schedule_runs")
       .insert({
         vessel_id: run.vessel_id,
-        template_id: run.template_id,
+        watch_template_id: run.watch_template_id,
         start_date: run.start_date,
         end_date: run.end_date,
         status: "draft",

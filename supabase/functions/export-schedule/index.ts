@@ -32,7 +32,6 @@ Deno.serve(async (req) => {
         vessel_id: vessel_id ?? run.vessel_id,
         schedule_run_id,
         export_type: export_type ?? "bridge",
-        export_format: "pdf",
         file_url: null,
       })
       .select()
