@@ -1,25 +1,22 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, ChevronLeft, ChevronRight, Download, ShipWheel } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
+import { AskTheSchedule } from "@/components/schedule/AskTheSchedule";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth";
 import {
   useAssignments,
-  useCharterPauses,
   useCrew,
   useCrewFairnessScores,
   useLatestScheduleRun,
-  useManualOverrides,
-  useScheduleExplanations,
   useScheduleHealth,
   useVesselId,
 } from "@/hooks/data";
-import { activateCharterMode, exportSchedule, resumeCharterMode } from "@/lib/edge";
+import { exportSchedule } from "@/lib/edge";
 import { buildBridgeCSV, downloadBlob, exportFilename } from "@/lib/exportUtils";
 import { calculateFairness } from "@/lib/fairness";
 import { PLAN_LABEL } from "@/lib/constants";
@@ -63,17 +60,6 @@ function buildWeekGrid(month: Date) {
   });
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-surface p-3.5">
-      <div className="text-[9px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
-        {label}
-      </div>
-      <div className="mt-2 font-mono text-xl font-medium text-primary">{value}</div>
-    </div>
-  );
-}
-
 export default function Dashboard() {
   const navigate = useNavigate();
   const vesselId = useVesselId();
@@ -81,15 +67,11 @@ export default function Dashboard() {
   const crewQuery = useCrew();
   const latestRun = useLatestScheduleRun();
   const assignmentsQuery = useAssignments(latestRun.data?.id);
-  const charterQuery = useCharterPauses();
   const persistedFairness = useCrewFairnessScores();
   const scheduleHealth = useScheduleHealth();
-  const explanations = useScheduleExplanations();
-  const overrides = useManualOverrides();
 
   const [month, setMonth] = useState(startOfMonth(new Date()));
   const [view, setView] = useState<"month" | "week">("month");
-  const [charterBusy, setCharterBusy] = useState(false);
 
   const crew = crewQuery.data ?? [];
   const assignments = assignmentsQuery.data ?? [];
@@ -120,32 +102,12 @@ export default function Dashboard() {
   });
 
   const scheduleFairness = latestRun.data?.fairness_score ?? fairness.scheduleFairnessScore;
-  const avgFairness =
-    crewFairnessRows.length > 0
-      ? Math.round(crewFairnessRows.reduce((s, r) => s + r.score, 0) / crewFairnessRows.length)
-      : fairness.averageCrewFairnessScore;
   const highestDebt =
     crewFairnessRows.length > 0
       ? Math.max(...crewFairnessRows.map((r) => r.fairnessDebt), 0)
       : fairness.highestFairnessDebt;
-  const lowestScore =
-    crewFairnessRows.length > 0
-      ? Math.min(...crewFairnessRows.map((r) => r.score))
-      : fairness.lowestFairnessScore;
   const stability = scheduleHealth.data?.rotation_stability_score ?? fairness.rotationStabilityScore;
-  const health = scheduleHealth.data?.schedule_health_score ?? scheduleFairness;
 
-  const runWarnings = Array.isArray(latestRun.data?.warnings)
-    ? (latestRun.data!.warnings as string[]).filter((w) => typeof w === "string")
-    : [];
-  const alerts = [
-    ...runWarnings,
-    ...(explanations.data ?? [])
-      .filter((e) => e.explanation_type === "alert")
-      .map((e) => e.explanation_text),
-  ];
-
-  const activeCharter = (charterQuery.data ?? []).find((c) => c.status === "active");
   const planType = (subscription?.plan_type ?? vessel?.plan_type) as PlanType | null | undefined;
 
   const calMonth = monthKey(month);
@@ -175,38 +137,6 @@ export default function Dashboard() {
     }
   }
 
-  async function handleCharterToggle(next: boolean) {
-    if (!vesselId) return;
-    setCharterBusy(true);
-    try {
-      if (next) {
-        const today = toISODate(new Date());
-        const end = toISODate(addMonths(new Date(), 1));
-        await activateCharterMode({
-          vessel_id: vesselId,
-          schedule_run_id: latestRun.data?.id,
-          start_date: today,
-          end_date: end,
-          pause_all_watches: true,
-          resume_mode: "manual",
-        });
-        toast.success("Charter Mode active.");
-      } else {
-        await resumeCharterMode({
-          vessel_id: vesselId,
-          schedule_run_id: latestRun.data?.id,
-          resume_mode: "manual",
-        });
-        toast.success("Normal rotation resumed.");
-      }
-      charterQuery.refetch();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Charter mode update failed.");
-    } finally {
-      setCharterBusy(false);
-    }
-  }
-
   return (
     <AppShell>
       {/* Header strip */}
@@ -215,72 +145,26 @@ export default function Dashboard() {
           <div className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
             Daily Watch Rota
           </div>
-          <h1 className="mt-1 font-display text-2xl font-semibold">
-            {vessel?.name ?? "Your vessel"}
-          </h1>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <h1 className="font-display text-2xl font-semibold">
+              {vessel?.name ?? "Your vessel"}
+            </h1>
             {planType && (
               <Badge variant="outline" className="text-[10px] uppercase tracking-wider text-muted-foreground">
                 {PLAN_LABEL[planType]}
               </Badge>
             )}
-            <Badge
-              variant={activeCharter ? "warning" : "success"}
-              className="text-[10px] uppercase tracking-wider"
-            >
-              {activeCharter ? "Charter Mode" : "Normal Rotation"}
-            </Badge>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2.5 rounded-md border border-border px-3 py-2">
-            <Switch
-              checked={!!activeCharter}
-              disabled={charterBusy}
-              onCheckedChange={handleCharterToggle}
-              aria-label="Toggle Charter Mode"
-            />
-            <span className="text-xs text-muted-foreground">
-              {activeCharter ? "Charter" : "Normal"}
-            </span>
-          </div>
+          <Button size="sm" variant="outline" onClick={() => navigate("/settings#watch-rules")}>
+            <RotateCw className="h-3.5 w-3.5" /> Generate Schedule
+          </Button>
           <Button size="sm" onClick={handleExport}>
             <Download className="h-3.5 w-3.5" /> Export PDF
           </Button>
         </div>
-      </div>
-
-      {/* Quick actions */}
-      <div className="mb-5 flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onClick={handleExport}>
-          <Download className="h-3.5 w-3.5" /> Export Schedule
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={charterBusy}
-          onClick={() => handleCharterToggle(!activeCharter)}
-        >
-          <ShipWheel className="h-3.5 w-3.5" />
-          {activeCharter ? "Resume Rotation" : "Pause for Charter"}
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => navigate("/crew")}>
-          Edit Crew
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => navigate("/settings#watch-rules")}>
-          Regenerate Schedule
-        </Button>
-      </div>
-
-      {/* Bridge metrics */}
-      <div className="mb-5 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-        <Metric label="Schedule Fairness" value={`${scheduleFairness || "—"}%`} />
-        <Metric label="Avg Crew Fairness" value={`${avgFairness || "—"}%`} />
-        <Metric label="Highest Debt" value={String(highestDebt || "—")} />
-        <Metric label="Lowest Fairness" value={`${lowestScore || "—"}%`} />
-        <Metric label="Rotation Stability" value={`${stability || "—"}%`} />
-        <Metric label="Schedule Health" value={`${health || "—"}%`} />
       </div>
 
       {/* Calendar + fairness panel */}
@@ -437,29 +321,7 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Alerts */}
-          <div className="rounded border border-border bg-background/35 p-4">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />
-              <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Alerts
-              </div>
-            </div>
-            <div className="mt-3 space-y-1.5 text-xs text-muted-foreground">
-              {alerts.length > 0 ? (
-                alerts.slice(0, 4).map((a, i) => (
-                  <div key={i} className="border-l-2 border-warning/40 pl-2">{a}</div>
-                ))
-              ) : (
-                <div>No fairness alerts.</div>
-              )}
-              {!!overrides.data?.length && (
-                <div className="mt-1 text-muted-foreground/70">
-                  {overrides.data.length} manual override{overrides.data.length !== 1 ? "s" : ""}.
-                </div>
-              )}
-            </div>
-          </div>
+          <AskTheSchedule />
         </aside>
       </div>
     </AppShell>

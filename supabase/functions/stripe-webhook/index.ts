@@ -18,7 +18,7 @@ async function upsertSubscription(supabase: ReturnType<typeof adminClient>, data
   periodEnd?: number | null;
   cancelAtPeriodEnd?: boolean;
 }) {
-  await supabase.from("subscriptions").upsert(
+  const { error } = await supabase.from("subscriptions").upsert(
     {
       user_id: data.userId,
       stripe_customer_id: data.stripeCustomerId,
@@ -36,6 +36,7 @@ async function upsertSubscription(supabase: ReturnType<typeof adminClient>, data
     },
     { onConflict: "user_id" },
   );
+  if (error) throw error;
 }
 
 Deno.serve(async (req) => {
@@ -51,7 +52,7 @@ Deno.serve(async (req) => {
   try {
     const body = await req.text();
     const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" });
-    event = stripe.webhooks.constructEvent(body, sig ?? "", webhookSecret);
+    event = await stripe.webhooks.constructEventAsync(body, sig ?? "", webhookSecret);
   } catch (err) {
     return new Response(`Webhook error: ${err instanceof Error ? err.message : err}`, {
       status: 400,
@@ -67,7 +68,9 @@ Deno.serve(async (req) => {
         const session = event.data.object as Stripe.Checkout.Session;
         const userId = session.metadata?.supabase_user_id;
         const planType = session.metadata?.plan_type ?? "solo_watch";
-        if (!userId || !session.subscription) break;
+        if (!userId || !session.subscription) {
+          throw new Error("checkout.session.completed missing supabase_user_id or subscription");
+        }
 
         const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" });
         const sub = await stripe.subscriptions.retrieve(session.subscription as string);
@@ -97,14 +100,15 @@ Deno.serve(async (req) => {
           .select("user_id")
           .eq("stripe_customer_id", customerId)
           .maybeSingle();
-        if (!existing?.user_id) break;
+        const userId = existing?.user_id ?? sub.metadata?.supabase_user_id;
+        if (!userId) throw new Error(`No user for Stripe customer ${customerId}`);
 
         await upsertSubscription(supabase, {
-          userId: existing.user_id,
+          userId,
           stripeCustomerId: customerId,
           stripeSubId: sub.id,
           status: event.type === "customer.subscription.deleted" ? "cancelled" : sub.status,
-          planType: PLAN_FROM_PRICE[priceId] ?? "solo_watch",
+          planType: PLAN_FROM_PRICE[priceId] ?? sub.metadata?.plan_type ?? "solo_watch",
           periodStart: sub.current_period_start,
           periodEnd: sub.current_period_end,
           cancelAtPeriodEnd: sub.cancel_at_period_end,
@@ -131,6 +135,7 @@ Deno.serve(async (req) => {
     }
   } catch (e) {
     console.error("Webhook handler error:", e);
+    return new Response("Webhook handler error", { status: 500, headers: CORS });
   }
 
   return new Response(JSON.stringify({ received: true }), {

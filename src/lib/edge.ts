@@ -44,6 +44,17 @@ export async function regenerateSchedule(input: {
   return callEdge("regenerate-schedule", input);
 }
 
+export interface AskTheScheduleMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export async function askTheSchedule(
+  messages: AskTheScheduleMessage[],
+): Promise<{ reply: string }> {
+  return callEdge("ask-the-schedule", { messages });
+}
+
 export async function createCheckoutSession(input: {
   plan_type: string;
   success_url: string;
